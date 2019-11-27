@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import sys
 import urllib.request
 import gzip
 from lxml import etree, objectify
@@ -22,11 +23,27 @@ def query_gz_xml(url):
 def query_xml(url):
     return strip_namespaces(etree.XML(query_url(url)))
 
-def download_package(repository, package):
+def query_repomd_file(repomd, repository, fname, trace=False):
+    location = repomd.xpath('//data[@type="{}"]/location/@href'.format(fname))
+    location = location[0] if location else ''
+    if not location:
+        return None
+    docu = query_gz_xml(os.path.join(repository, location))
+    if trace:
+        open('{}.xml'.format(fname), 'wb').write(etree.tostring(docu))
+    return docu
+
+def download_package(repository, package, trace=False):
     repomd = query_xml(repository + "/repodata/repomd.xml")
-    primary_fname = repomd.xpath('//data[@type="primary"]/location/@href')
-    primary_fname = primary_fname[0] if primary_fname else ''
-    primary = query_gz_xml(os.path.join(repository, primary_fname))
+    if trace:
+        open('repomd.xml', 'wb').write(etree.tostring(repomd))
+        query_repomd_file(repomd, repository, "filelists", trace=trace)
+        query_repomd_file(repomd, repository, "updatedata", trace=trace)
+        query_repomd_file(repomd, repository, "other", trace=trace)
+    primary = query_repomd_file(repomd, repository, "primary", trace=trace)
+    if primary is None:
+        print("primary.xml not found in repomd", file=sys.stderr)
+        sys.exit(1)
     for rpm in primary.xpath('/metadata/package[@type="rpm"]'):
         name = rpm.findtext('name').strip()
         if name == package:
@@ -34,10 +51,15 @@ def download_package(repository, package):
             with open(os.path.basename(fname), 'wb') as of:
                 of.write(query_url(os.path.join(repository, fname)))
                 print(os.path.basename(fname))
+                break
+    else:
+        print("{} not found".format(package), file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("repository")
     parser.add_argument("package")
+    parser.add_argument("-x", "--trace", action="store_true")
     args = parser.parse_args()
-    download_package(args.repository, args.package)
+    download_package(args.repository, args.package, trace=args.trace)
