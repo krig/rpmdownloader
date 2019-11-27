@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import urllib.request
+import urllib.error
 import gzip
 from lxml import etree, objectify
 
@@ -43,7 +44,7 @@ def download_package(repository, package, trace=False):
     primary = query_repomd_file(repomd, repository, "primary", trace=trace)
     if primary is None:
         print("primary.xml not found in repomd", file=sys.stderr)
-        sys.exit(1)
+        return False
     locations = []
     for rpm in primary.xpath('/metadata/package[@type="rpm"]'):
         name = rpm.findtext('name').strip()
@@ -53,13 +54,12 @@ def download_package(repository, package, trace=False):
     if trace:
         print(", ".join(locations))
     if not len(locations):
-        print("{} not found".format(package), file=sys.stderr)
-        sys.exit(1)
+        return False
     fname = locations[0]
     with open(os.path.basename(fname), 'wb') as of:
         of.write(query_url(os.path.join(repository, fname)))
         print(os.path.basename(fname))
-
+    return True
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -67,4 +67,14 @@ if __name__ == "__main__":
     parser.add_argument("package")
     parser.add_argument("-x", "--trace", action="store_true")
     args = parser.parse_args()
-    download_package(args.repository, args.package, trace=args.trace)
+
+    for repo in args.repository.split():
+        try:
+            if args.trace: print("Trying '{}' / '{}'...".format(repo, args.package))
+            if download_package(repo, args.package, trace=args.trace):
+                break
+        except urllib.error.HTTPError:
+            continue
+    else:
+        print("{} not found".format(args.package), file=sys.stderr)
+        sys.exit(1)
