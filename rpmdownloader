@@ -44,17 +44,22 @@ def download_package(repository, package, trace=False):
     if primary is None:
         print("primary.xml not found in repomd", file=sys.stderr)
         sys.exit(1)
+    locations = []
     for rpm in primary.xpath('/metadata/package[@type="rpm"]'):
         name = rpm.findtext('name').strip()
         if name == package:
-            fname = rpm.find('location').get('href')
-            with open(os.path.basename(fname), 'wb') as of:
-                of.write(query_url(os.path.join(repository, fname)))
-                print(os.path.basename(fname))
-                break
-    else:
+            locations.append(rpm.find('location').get('href'))
+    locations = list(reversed(sorted(locations)))
+    if trace:
+        print(", ".join(locations))
+    if not len(locations):
         print("{} not found".format(package), file=sys.stderr)
         sys.exit(1)
+    fname = locations[0]
+    with open(os.path.basename(fname), 'wb') as of:
+        of.write(query_url(os.path.join(repository, fname)))
+        print(os.path.basename(fname))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
