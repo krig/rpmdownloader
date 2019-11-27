@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import urllib.request
+import gzip
+from lxml import etree, objectify
+
+def strip_namespaces(root):
+    for elem in root.getiterator():
+        if hasattr(elem.tag, 'find'):
+            elem.tag = elem.tag[elem.tag.find('}')+1:]
+    objectify.deannotate(root, cleanup_namespaces=True)
+    return root
+
+def query_url(url):
+    with urllib.request.urlopen(url) as response:
+        return response.read()
+
+def query_gz_xml(url):
+    return strip_namespaces(etree.XML(gzip.decompress(query_url(url))))
+
+def query_xml(url):
+    return strip_namespaces(etree.XML(query_url(url)))
+
+def download_package(repository, package):
+    repomd = query_xml(repository + "/repodata/repomd.xml")
+    primary_fname = repomd.xpath('//data[@type="primary"]/location/@href')
+    primary_fname = primary_fname[0] if primary_fname else ''
+    primary = query_gz_xml(os.path.join(repository, primary_fname))
+    for rpm in primary.xpath('/metadata/package[@type="rpm"]'):
+        name = rpm.findtext('name').strip()
+        if name == package:
+            fname = rpm.find('location').get('href')
+            with open(os.path.basename(fname), 'wb') as of:
+                of.write(query_url(os.path.join(repository, fname)))
+                print(os.path.basename(fname))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repository")
+    parser.add_argument("package")
+    args = parser.parse_args()
+    download_package(args.repository, args.package)
